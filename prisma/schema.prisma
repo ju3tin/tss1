@@ -1,0 +1,857 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  password_hash  String
+  first_name     String
+  last_name      String
+  role           Role     @default(ANALYST)
+  calendar_sync  Boolean  @default(false)
+  calendar_token String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  
+  // Relationships
+  owned_deals    Deal[]
+  assigned_tasks Task[]
+  uploaded_documents Document[]
+  email_sequences EmailSequence[]
+  calendar_events CalendarEvent[]
+  ai_prompts     AIPrompt[]
+  booking_availabilities BookingAvailability[]
+  google_calendar_sync GoogleCalendarSync?
+  google_drive_config GoogleDriveConfig?
+  created_templates DocumentTemplate[]
+  assigned_form_submissions FormSubmission[] @relation("FormSubmissionAssignedTo")
+  assigned_form_assignments FormAssignment[] @relation("FormAssignmentAssignedTo")
+  created_form_templates FormTemplate[] @relation("created_form_templates")
+  assigned_by_form_assignments FormAssignment[] @relation("assigned_form_assignments")
+  user_dashboard         UserDashboard?
+  
+  @@map("users")
+}
+
+model Contact {
+  id                  String      @id @default(cuid())
+  full_name           String
+  email               String      @unique
+  phone_number        String?
+  investor_type       InvestorType
+  source              String?
+  associated_company_id String?    @unique
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @updatedAt
+  
+  // Relationships
+  associated_company  Company?    @relation(fields: [associated_company_id], references: [id])
+  deals               Deal[]
+  primary_company     Company?    @relation("CompanyPrimaryContact")
+  email_trackings     EmailTracking[]
+  agreements          Agreement[]
+  campaign_emails     CampaignEmail[]
+  bookings            Booking[]
+  
+  @@map("contacts")
+}
+
+model Company {
+  id                String        @id @default(cuid())
+  name              String
+  company_type      CompanyType
+  region            String?
+  vertical          String?
+  aum               Float?        // Assets Under Management
+  ticket_size_range String?
+  primary_contact_id String?      @unique
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+  
+  // Relationships
+  primary_contact   Contact?      @relation("CompanyPrimaryContact", fields: [primary_contact_id], references: [id])
+  contacts          Contact[]
+  deals             Deal[]
+  
+  @@map("companies")
+}
+
+model Deal {
+  id                   String        @id @default(cuid())
+  deal_name            String
+  stage                DealStage     @default(NEW_LEAD)
+  owner_user_id        String
+  associated_contact_id String
+  associated_company_id String?
+  kyc_status           KYCStatus     @default(PENDING)
+  due_diligence_notes  String?
+  ai_analysis_summary  String?
+  pipeline_priority   PipelinePriority @default(MEDIUM)
+  expected_close_date DateTime?
+  deal_value          Float?
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  owner                User          @relation(fields: [owner_user_id], references: [id])
+  associated_contact   Contact       @relation(fields: [associated_contact_id], references: [id])
+  associated_company   Company?      @relation(fields: [associated_company_id], references: [id])
+  tasks                Task[]
+  documents            Document[]
+  email_trackings      EmailTracking[]
+  agreements          Agreement[]
+  ai_analyses          AIAnalysis[]
+  campaign_emails     CampaignEmail[]
+  
+  @@map("deals")
+}
+
+model Task {
+  id                   String        @id @default(cuid())
+  title                String
+  description          String?
+  due_date             DateTime?
+  status               TaskStatus    @default(PENDING)
+  assigned_to_user_id  String
+  parent_document_id   String
+  parent_document_type ParentDocumentType
+  associated_deal_id   String?
+  is_reminder          Boolean       @default(false)
+  reminder_sent        Boolean       @default(false)
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  assigned_to          User          @relation(fields: [assigned_to_user_id], references: [id])
+  associated_deal      Deal?         @relation(fields: [associated_deal_id], references: [id])
+  
+  @@map("tasks")
+}
+
+model EmailTracking {
+  id                   String        @id @default(cuid())
+  email_id             String        @unique
+  recipient_email      String
+  subject              String
+  sent_at              DateTime      @default(now())
+  opened_at            DateTime?
+  open_count           Int           @default(0)
+  last_opened_at       DateTime?
+  tracking_pixel_url   String?
+  ip_address           String?
+  user_agent           String?
+  device_type          String?
+  location             String?
+  associated_deal_id   String?
+  associated_contact_id String?
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  associated_deal      Deal?         @relation(fields: [associated_deal_id], references: [id])
+  associated_contact   Contact?      @relation(fields: [associated_contact_id], references: [id])
+  
+  @@map("email_tracking")
+}
+
+model Document {
+  id                   String        @id @default(cuid())
+  file_name            String
+  storage_path         String
+  file_type            DocumentType
+  uploaded_by_user_id  String
+  associated_deal_id   String
+  e_signature_status   ESignatureStatus?
+  ai_summary           String?
+  content_hash         String?
+  workflow_status      DocumentWorkflowStatus @default(PENDING)
+  acknowledgment_required Boolean       @default(true)
+  acknowledged_at       DateTime?
+  acknowledged_by      String?
+  signature_data       String?       // JSON string of signature data
+  signed_at            DateTime?
+  extracted_data       String?       // JSON string of extracted form data
+  validation_status    ValidationStatus?
+  google_drive_id      String?       // Google Drive file ID
+  google_drive_link    String?       // Google Drive file link
+  google_drive_folder  String?       // Google Drive folder ID
+  document_template_id String?       // Reference to document template
+  form_fields          String?       // JSON string of form field data
+  auto_extracted       Boolean       @default(false)
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  uploaded_by          User          @relation(fields: [uploaded_by_user_id], references: [id])
+  associated_deal      Deal          @relation(fields: [associated_deal_id], references: [id])
+  document_template    DocumentTemplate? @relation(fields: [document_template_id], references: [id])
+  document_workflow_steps DocumentWorkflowStep[]
+  document_signatures  DocumentSignature[]
+  
+  @@map("documents")
+}
+
+model DocumentTemplate {
+  id                   String        @id @default(cuid())
+  name                 String
+  description          String?
+  template_type        DocumentType
+  file_path            String        // Path to template file
+  form_fields          String        // JSON string of form field definitions
+  is_active            Boolean       @default(true)
+  required_fields      String        // JSON string of required fields
+  validation_rules     String?       // JSON string of validation rules
+  auto_extract_fields  Boolean       @default(true)
+  created_by_user_id   String
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  created_by           User          @relation(fields: [created_by_user_id], references: [id])
+  documents            Document[]
+  
+  @@map("document_templates")
+}
+
+model DocumentSignature {
+  id                   String        @id @default(cuid())
+  document_id          String
+  signer_email         String
+  signer_name          String
+  signature_data       String        // Base64 encoded signature image
+  signature_type       SignatureType
+  ip_address           String?
+  user_agent           String?
+  signed_at            DateTime      @default(now())
+  status               SignatureStatus @default(PENDING)
+  verification_token   String?       // For email verification
+  verified_at          DateTime?
+  created_at           DateTime      @default(now())
+  
+  // Relationships
+  document             Document       @relation(fields: [document_id], references: [id], onDelete: Cascade)
+  
+  @@map("document_signatures")
+}
+
+model GoogleDriveConfig {
+  id                   String        @id @default(cuid())
+  user_id              String        @unique
+  access_token         String
+  refresh_token        String?
+  token_expires_at     DateTime?
+  drive_folder_id      String?       // Default folder for documents
+  is_enabled           Boolean       @default(true)
+  auto_upload          Boolean       @default(true)
+  sync_direction       SyncDirection @default(TO_GOOGLE)
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  user                 User          @relation(fields: [user_id], references: [id])
+  
+  @@map("google_drive_configs")
+}
+
+model EmailSequence {
+  id                   String        @id @default(cuid())
+  name                 String
+  description          String?
+  type                 EmailSequenceType
+  created_by_user_id   String
+  is_active            Boolean       @default(true)
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  created_by           User          @relation(fields: [created_by_user_id], references: [id])
+  sequence_steps       EmailSequenceStep[]
+  
+  @@map("email_sequences")
+}
+
+model EmailSequenceStep {
+  id                   String        @id @default(cuid())
+  sequence_id          String
+  step_order           Int
+  name                 String
+  subject              String
+  body_template        String
+  delay_days           Int           @default(0)
+  is_ai_generated      Boolean       @default(false)
+  ai_prompt            String?
+  created_at           DateTime      @default(now())
+  
+  // Relationships
+  sequence             EmailSequence @relation(fields: [sequence_id], references: [id], onDelete: Cascade)
+  campaign_emails      CampaignEmail[]
+  
+  @@map("email_sequence_steps")
+}
+
+model CampaignEmail {
+  id                   String        @id @default(cuid())
+  sequence_step_id     String
+  contact_id           String
+  deal_id              String?
+  scheduled_for        DateTime
+  sent_at              DateTime?
+  opened_at            DateTime?
+  status               CampaignEmailStatus @default(SCHEDULED)
+  tracking_pixel_url   String?
+  created_at           DateTime      @default(now())
+  
+  // Relationships
+  sequence_step        EmailSequenceStep @relation(fields: [sequence_step_id], references: [id])
+  contact              Contact       @relation(fields: [contact_id], references: [id])
+  deal                 Deal?         @relation(fields: [deal_id], references: [id])
+  
+  @@map("campaign_emails")
+}
+
+model Agreement {
+  id                   String        @id @default(cuid())
+  agreement_type       AgreementType
+  title                String
+  content              String
+  status               AgreementStatus @default(DRAFT)
+  contact_id           String
+  deal_id              String?
+  e_signature_required Boolean       @default(true)
+  e_signature_status   ESignatureStatus @default(NOT_SENT)
+  signed_at            DateTime?
+  created_by_user_id   String
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  contact              Contact       @relation(fields: [contact_id], references: [id])
+  deal                 Deal?         @relation(fields: [deal_id], references: [id])
+  
+  @@map("agreements")
+}
+
+model CalendarEvent {
+  id                   String        @id @default(cuid())
+  user_id              String
+  google_event_id      String?
+  title                String
+  description          String?
+  start_time           DateTime
+  end_time             DateTime
+  location             String?
+  attendees            String?       // JSON string of email addresses
+  reminder_minutes     Int           @default(15)
+  event_type           CalendarEventType @default(MEETING)
+  is_synced_with_google Boolean       @default(false)
+  last_synced_at       DateTime?
+  google_meet_link     String?       // Google Meet conference link
+  google_meet_data     String?       // JSON string of Meet conference data
+  include_google_meet  Boolean       @default(false)
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  user                 User          @relation(fields: [user_id], references: [id])
+  
+  @@map("calendar_events")
+}
+
+model GoogleCalendarSync {
+  id                   String        @id @default(cuid())
+  user_id              String        @unique
+  access_token         String
+  refresh_token        String?
+  token_expires_at     DateTime?
+  calendar_id          String        @default("primary")
+  is_sync_enabled      Boolean       @default(true)
+  last_sync_at         DateTime?
+  sync_direction       SyncDirection @default(BIDIRECTIONAL)
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  user                 User          @relation(fields: [user_id], references: [id])
+  
+  @@map("google_calendar_syncs")
+}
+
+model DocumentWorkflowStep {
+  id                   String        @id @default(cuid())
+  document_id          String
+  step_type            WorkflowStepType
+  status               DocumentWorkflowStatus @default(PENDING)
+  step_data            String?       // JSON string of step-specific data
+  completed_at         DateTime?
+  completed_by         String?
+  notes                String?
+  error_message        String?
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  document             Document       @relation(fields: [document_id], references: [id], onDelete: Cascade)
+  
+  @@map("document_workflow_steps")
+}
+
+model AIAnalysis {
+  id                   String        @id @default(cuid())
+  analysis_type        AIAnalysisType
+  target_id            String        // ID of deal, document, etc.
+  target_type          AnalysisTarget
+  prompt               String
+  result               String
+  confidence_score     Float?
+  red_flags            String?       // JSON string of detected issues
+  swot_analysis        String?       // JSON string of SWOT analysis
+  created_by_user_id   String
+  created_at           DateTime      @default(now())
+  
+  // Relationships
+  deal                 Deal?         @relation(fields: [target_id], references: [id])
+  
+  @@map("ai_analyses")
+}
+
+model AIPrompt {
+  id                   String        @id @default(cuid())
+  name                 String
+  description          String?
+  prompt_template      String
+  category             AIPromptCategory
+  is_active            Boolean       @default(true)
+  created_by_user_id   String
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  created_by           User          @relation(fields: [created_by_user_id], references: [id])
+  
+  @@map("ai_prompts")
+}
+
+model BookingAvailability {
+  id                   String        @id @default(cuid())
+  user_id              String
+  name                 String
+  description          String?
+  duration_minutes     Int           @default(30)
+  buffer_minutes       Int           @default(15)
+  booking_link         String        @unique
+  is_active            Boolean       @default(true)
+  timezone             String        @default("UTC")
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  user                 User          @relation(fields: [user_id], references: [id])
+  availability_rules   AvailabilityRule[]
+  bookings             Booking[]
+  
+  @@map("booking_availabilities")
+}
+
+model AvailabilityRule {
+  id                   String        @id @default(cuid())
+  availability_id      String
+  day_of_week          Int           // 0 = Sunday, 1 = Monday, etc.
+  start_time           String        // Format: "09:00"
+  end_time             String        // Format: "17:00"
+  is_available         Boolean       @default(true)
+  created_at           DateTime      @default(now())
+  
+  // Relationships
+  availability         BookingAvailability @relation(fields: [availability_id], references: [id], onDelete: Cascade)
+  
+  @@map("availability_rules")
+}
+
+model Booking {
+  id                   String        @id @default(cuid())
+  availability_id       String
+  contact_id           String?
+  guest_name           String
+  guest_email          String
+  guest_phone          String?
+  start_time           DateTime
+  end_time             DateTime
+  status               BookingStatus @default(PENDING)
+  meeting_link         String?
+  notes                String?
+  timezone             String        @default("UTC")
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  availability         BookingAvailability @relation(fields: [availability_id], references: [id])
+  contact              Contact?      @relation(fields: [contact_id], references: [id])
+  
+  @@map("bookings")
+}
+
+model FormSubmission {
+  id                   String        @id @default(cuid())
+  form_name            String
+  form_type            FormType
+  submission_data      String        // JSON string of form data
+  source_ip            String?
+  user_agent           String?
+  contact_email        String?
+  contact_name         String?
+  status               FormSubmissionStatus @default(PENDING)
+  assigned_to_user_id  String?
+  priority             FormPriority @default(MEDIUM)
+  notes                String?
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  assigned_to          User?         @relation("FormSubmissionAssignedTo", fields: [assigned_to_user_id], references: [id])
+  form_assignments     FormAssignment[]
+  
+  @@map("form_submissions")
+}
+
+model FormAssignment {
+  id                   String        @id @default(cuid())
+  form_submission_id   String
+  assigned_to_user_id  String
+  assigned_by_user_id  String
+  status               AssignmentStatus @default(PENDING)
+  assigned_at          DateTime      @default(now())
+  due_date             DateTime?
+  completed_at         DateTime?
+  notes                String?
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  form_submission      FormSubmission @relation(fields: [form_submission_id], references: [id], onDelete: Cascade)
+  assigned_to          User          @relation("FormAssignmentAssignedTo", fields: [assigned_to_user_id], references: [id])
+  assigned_by          User          @relation("assigned_form_assignments", fields: [assigned_by_user_id], references: [id])
+  
+  @@map("form_assignments")
+}
+
+model FormTemplate {
+  id                   String        @id @default(cuid())
+  name                 String
+  description          String?
+  form_type            FormType
+  form_fields          String        // JSON string of form field definitions
+  validation_rules     String?       // JSON string of validation rules
+  is_active            Boolean       @default(true)
+  created_by_user_id   String
+  auto_assign_to       String?       // User ID to auto-assign to
+  priority             FormPriority @default(MEDIUM)
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  
+  // Relationships
+  created_by           User          @relation("created_form_templates", fields: [created_by_user_id], references: [id])
+  
+  @@map("form_templates")
+}
+
+// Enums
+enum Role {
+  ADMIN
+  ANALYST
+  PARTNER
+  COMPLIANCE
+  LEGAL
+  OPERATIONS
+}
+
+enum InvestorType {
+  INDIVIDUAL
+  FAMILY_OFFICE
+  INSTITUTIONAL
+  PROJECT_FUND
+}
+
+enum CompanyType {
+  FAMILY_OFFICE
+  PROJECT
+  FUND
+}
+
+enum DealStage {
+  NEW_LEAD
+  KYC_IN_PROGRESS
+  DUE_DILIGENCE
+  CONTRACT_SIGNING
+  ONBOARDED
+  REJECTED
+}
+
+enum KYCStatus {
+  PENDING
+  SUBMITTED
+  VERIFIED
+  REJECTED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+enum ParentDocumentType {
+  CONTACT
+  COMPANY
+  DEAL
+}
+
+enum DocumentType {
+  ID
+  PASSPORT
+  COMPANY_CERT
+  AML
+  KYC
+  PITCH_DECK
+  CONTRACT
+  OTHER
+}
+
+enum ESignatureStatus {
+  NOT_SENT
+  SENT
+  SIGNED
+  DECLINED
+}
+
+enum PipelinePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum EmailSequenceType {
+  ONBOARDING
+  INVESTOR_UPDATES
+  FOLLOW_UP
+  REMINDER
+  DUE_DILIGENCE
+  MARKETING
+}
+
+enum CampaignEmailStatus {
+  SCHEDULED
+  SENT
+  OPENED
+  FAILED
+  CANCELLED
+}
+
+enum AgreementType {
+  NDA
+  MOU
+  INVESTMENT_AGREEMENT
+  SUBSCRIPTION_AGREEMENT
+  PARTNERSHIP_AGREEMENT
+  OTHER
+}
+
+enum AgreementStatus {
+  DRAFT
+  PENDING_REVIEW
+  SENT_FOR_SIGNATURE
+  SIGNED
+  EXPIRED
+  TERMINATED
+}
+
+enum AIAnalysisType {
+  RED_FLAG_DETECTION
+  SWOT_ANALYSIS
+  DOCUMENT_SUMMARY
+  RISK_ASSESSMENT
+  MARKET_ANALYSIS
+  CUSTOM_PROMPT
+}
+
+enum AnalysisTarget {
+  DEAL
+  DOCUMENT
+  CONTACT
+  COMPANY
+}
+
+enum AIPromptCategory {
+  DUE_DILIGENCE
+  COMPLIANCE
+  INVESTMENT_ANALYSIS
+  RISK_MANAGEMENT
+  DOCUMENT_PROCESSING
+  CUSTOM
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum CalendarEventType {
+  MEETING
+  TASK
+  BOOKING
+  REMINDER
+  PERSONAL
+  OTHER
+}
+
+enum SyncDirection {
+  TO_GOOGLE
+  FROM_GOOGLE
+  BIDIRECTIONAL
+}
+
+enum DocumentWorkflowStatus {
+  PENDING
+  PROCESSING
+  READY_FOR_REVIEW
+  READY_FOR_SIGNATURE
+  ACKNOWLEDGED
+  SIGNED
+  COMPLETED
+  REJECTED
+}
+
+enum ValidationStatus {
+  PENDING
+  VALID
+  INVALID
+  REQUIRES_REVIEW
+}
+
+enum WorkflowStepType {
+  UPLOAD
+  EXTRACTION
+  VALIDATION
+  REVIEW
+  ACKNOWLEDGMENT
+  SIGNATURE
+  COMPLETION
+}
+
+enum SignatureType {
+  DRAWN
+  TYPED
+  UPLOADED
+}
+
+enum SignatureStatus {
+  PENDING
+  SIGNED
+  VERIFIED
+  EXPIRED
+  REVOKED
+}
+
+enum FormType {
+  CONTACT
+  AML
+  KYC
+  INVESTMENT_INQUIRY
+  DOCUMENT_REQUEST
+  GENERAL
+}
+
+enum FormSubmissionStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  ARCHIVED
+}
+
+enum AssignmentStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+}
+
+enum FormPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// Dashboard Widget Types
+enum DashboardWidgetType {
+  METRICS_OVERVIEW
+  RECENT_DEALS
+  UPCOMING_TASKS
+  RECENT_CONTACTS
+  CALENDAR_WIDGET
+  DOCUMENT_STATUS
+  EMAIL_TRACKING
+  PIPELINE_OVERVIEW
+  RECENT_ACTIVITY
+  PERFORMANCE_CHARTS
+  CUSTOM_CHART
+  NOTES_WIDGET
+  QUICK_ACTIONS
+  TEAM_OVERVIEW
+  BOOKING_OVERVIEW
+  FORM_OVERVIEW
+}
+
+// Dashboard Layout Models
+model UserDashboard {
+  id                   String   @id @default(cuid())
+  user_id              String   @unique
+  layout_name          String   @default("Default Dashboard")
+  is_active            Boolean  @default(true)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+  
+  // Relationships
+  user                 User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  dashboard_widgets    DashboardWidget[]
+  
+  @@map("user_dashboards")
+}
+
+model DashboardWidget {
+  id                   String              @id @default(cuid())
+  dashboard_id         String
+  widget_type          DashboardWidgetType
+  position_x           Int                 @default(0)
+  position_y           Int                 @default(0)
+  width                Int                 @default(4)
+  height               Int                 @default(3)
+  is_visible           Boolean             @default(true)
+  widget_config        String?             // JSON string for widget-specific configuration
+  created_at           DateTime            @default(now())
+  updated_at           DateTime            @updatedAt
+  
+  // Relationships
+  dashboard            UserDashboard       @relation(fields: [dashboard_id], references: [id], onDelete: Cascade)
+  
+  @@map("dashboard_widgets")
+}
